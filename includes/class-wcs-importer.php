@@ -226,6 +226,7 @@ class WCS_Importer {
 		);
 
 		$user_id = wcsi_check_customer( $data, self::$fields, self::$test_mode, self::$email_customer );
+		$recipient_user_id = false;
 
 		if ( is_wp_error( $user_id ) ) {
 			$result['error'][] = $user_id->get_error_message();
@@ -390,6 +391,11 @@ class WCS_Importer {
 
 					foreach ( self::$fields['custom_post_meta'] as $meta_key ) {
 						if ( ! empty( $data[ $meta_key ] ) ) {
+							if ( '_recipient_user' === $meta_key ) {
+								$recipient_user_id = self::maybe_create_new_recipient_user( $data[ $meta_key ], $data );
+								$data[ $meta_key ] = $recipient_user_id;
+							}
+
 							$subscription->update_meta_data( $meta_key, $data[ $meta_key ] );
 						}
 					}
@@ -502,6 +508,10 @@ class WCS_Importer {
 					if ( self::$add_memberships ) {
 						foreach ( $order_items as $product_id ) {
 							self::maybe_add_memberships( $user_id, $subscription->get_id(), $product_id );
+
+							if ( ! empty( $recipient_user_id ) ) {
+								self::maybe_add_memberships( $recipient_user_id, $subscription->get_id(), $product_id );
+							}
 						}
 					}
 				}
@@ -532,6 +542,86 @@ class WCS_Importer {
 		}
 
 		array_push( self::$results, $result );
+	}
+
+	// Add support for Gifting for WooCommerce Subscriptions
+	public static function maybe_create_new_recipient_user( $recipient_email, $data ) {
+
+		$return = '';
+		
+		if ( ! empty( $recipient_email ) && is_email( $recipient_email ) ) {
+			// a valid email is entered in the column
+
+			$recipient_user = get_user_by( 'email', $recipient_email );
+			
+			if ( ! empty( $recipient_user ) && isset( $recipient_user->ID ) ) {
+				// if a user exists for the email, get that user id for the output value
+				$return = $recipient_user->ID;
+			} else {
+				// if no user exists for that email, create one, with the appropriate meta data
+
+				// generate a username from the email
+				$username = explode( '@', $recipient_email )[0] . random_int(10000, 99999);
+
+				$first_name = ( ! empty( $data[ self::$fields[ 'shipping_first_name' ] ] ) ) ? $data[ self::$fields[ 'shipping_first_name' ] ] : '';
+				$last_name = ( ! empty( $data[ self::$fields[ 'shipping_last_name' ] ] ) ) ? $data[ self::$fields[ 'shipping_last_name' ] ] : '';
+
+				$recip_user_meta = array(
+					'billing_first_name' => $first_name,
+					'billing_last_name' => $last_name,
+					'billing_email' => $recipient_email,
+					'shipping_first_name' => $first_name,
+					'shipping_last_name' => $last_name,
+				);
+
+				$recip_user_meta_shipping = array(
+					'shipping_address_1',
+					'shipping_address_2',
+					'shipping_city',
+					'shipping_state',
+					'shipping_postcode',
+					'shipping_country',
+					'shipping_company',
+				);
+
+				foreach ( $recip_user_meta_shipping as $field_slug ) {
+					$recip_user_meta[ $field_slug ] = ( ! empty( $data[ self::$fields[ $field_slug ] ] ) ) ? $data[ self::$fields[ $field_slug ] ] : '';
+					// The import data will have the gift giver as the billing by default.
+					// When creating the recipient, let's add the shipping address as the Gift Recipient's billing to start.
+					// This only fires if there was no existing user, so shouldn't impact existing accounts.
+					$billing_slug = str_replace( 'shipping_', 'billing_', $field_slug );
+					$recip_user_meta[ $billing_slug ] = $recip_user_meta[ $field_slug ];
+				}
+
+				$userdata = array(
+					'user_login' => $username,
+					'user_pass' => '',
+					'user_email' => $recipient_email,
+					'role' =>'customer',
+					'first_name' => $first_name,
+					'last_name' => $last_name,
+					'meta_input' => $recip_user_meta,
+				);
+				$new_recipient_userid = wp_insert_user( $userdata );
+
+				if ( ! is_wp_error( $new_recipient_userid ) ) {
+					$return = $new_recipient_userid;
+					// $recipient_user_id = $new_recipient_userid;
+				} else {
+					// error handling for wp_insert_user problems
+					
+					foreach ( $new_recipient_userid->errors as $error ) {
+						$message = 'Gift Recipient User could not be added.';
+						if ( ! empty( $error[0] ) ) {
+							$message .= ' (System error: ' . $error[0] . ')';
+						}
+						$result['warning'][] = $message;
+					}
+				}
+			}
+			
+		}
+		return $return;
 	}
 
 	/**
