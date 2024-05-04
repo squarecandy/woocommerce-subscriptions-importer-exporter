@@ -368,6 +368,30 @@ class WCS_Importer {
 						}
 					}
 
+					// is this a gift subscription?
+					$is_gift = false;
+					if ( isset( $data['_recipient_user'] ) && ! empty( $data['_recipient_user'] ) ) {
+						$is_gift = true;
+					}
+
+					// loop through all the data to set Giver users' shipping address to be the same as their billing address
+					foreach ( $data as $meta_key => $meta_value ) {
+						// make the giver's shipping address the same as their billing address for gift subs
+						// or overwrite with the new data for non-gift subs
+						if ( 0 === strpos( $meta_key, 'shipping_' ) && 'shipping_method' !== $meta_key ) {
+
+							// if this is a gift subscription, we need to set the giver's shipping address to be the same as their billing address
+							if ( $is_gift ) :
+								$billing_key = str_replace( 'shipping_', 'billing_', $meta_key );
+								$temp_data = ( ! empty( $data[ $billing_key ] ) ) ? $data[ $billing_key ] : '';
+							else :
+								// otherwise just overwrite the data.
+								$temp_data = $meta_value;
+							endif;
+							update_user_meta( $user_id, $meta_key, $temp_data );
+						}
+					}
+
 					$subscription = wcs_create_subscription( array(
 							'customer_id'      => $user_id,
 							'start_date'       => $dates_to_update['start'],
