@@ -531,10 +531,12 @@ class WCS_Importer {
 
 					if ( self::$add_memberships ) {
 						foreach ( $order_items as $product_id ) {
-							self::maybe_add_memberships( $user_id, $subscription->get_id(), $product_id );
-
 							if ( ! empty( $recipient_user_id ) ) {
+								// if this is a gift sub, we need to add the memberships to the recipient user only
 								self::maybe_add_memberships( $recipient_user_id, $subscription->get_id(), $product_id );
+							} else {
+								// otherwise, add the memberships to the user who purchased the sub
+								self::maybe_add_memberships( $user_id, $subscription->get_id(), $product_id );
 							}
 						}
 					}
@@ -639,11 +641,10 @@ class WCS_Importer {
 						if ( ! empty( $error[0] ) ) {
 							$message .= ' (System error: ' . $error[0] . ')';
 						}
-						$result['warning'][] = $message;
+						error_log( $message );
 					}
 				}
 			}
-			
 		}
 		return $return;
 	}
